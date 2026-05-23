@@ -1,0 +1,79 @@
+# Progress Log
+
+## Status: DEPLOYED ✅
+
+## Goals
+- [GOAL] Host LiteParse as a shared internal doc-processing microservice on AWS
+- [GOAL] Accessible via internal ALB within VPC
+- [GOAL] Callers POST files directly to /parse endpoint, get structured text/json back
+- [GOAL] S3 event-driven pipeline: upload to raw/ → auto-parse → results in processed/
+- [GOAL] Local web UI for drag-and-drop document parsing
+- [GOAL] Minimal operational overhead, $20-30/month budget
+- [GOAL] Use pre-built liteparse-server image — no custom container
+
+## Completed
+- [DONE] 2026-05-22 Architecture design and decision-making (21 questions resolved)
+- [DONE] 2026-05-22 CDK project scaffolded (infra/ directory)
+- [DONE] 2026-05-22 Discovered pre-built server image: ghcr.io/run-llama/liteparse-server:main
+- [DONE] 2026-05-22 Pivoted from Lambda to ECS Fargate (pre-built image has HTTP server, no Lambda RIC needed)
+- [DONE] 2026-05-22 CDK stack implemented: VPC, ECS cluster, Fargate service, ALB, S3 bucket
+- [DONE] 2026-05-22 CDK synth verified clean (no errors, no warnings)
+- [DONE] 2026-05-22 Removed custom Dockerfile and handler.js (not needed)
+- [DONE] 2026-05-23 CDK review: identified 16 gaps (1 critical, 4 high, 5 medium, 5 low)
+- [DONE] 2026-05-23 Fixed: explicit bucket name `liteparse-docs-{account-id}` (was generating duplicates)
+- [DONE] 2026-05-23 Fixed: architecture doc corrected to X86_64 (upstream image has no ARM64 variant)
+- [DONE] 2026-05-23 Fixed: health check narrowed to `200,404` (LiteParse only exposes POST endpoints)
+- [DONE] 2026-05-23 Added: auto-scaling (1–4 tasks, 70% CPU target-tracking)
+- [DONE] 2026-05-23 Added: CloudWatch alarms (5xx, CPU, unhealthy hosts)
+- [DONE] 2026-05-23 Added: S3 VPC Gateway endpoint (free, avoids NAT charges)
+- [DONE] 2026-05-23 Added: bucket versioning + multi-AZ storage class (INFREQUENT_ACCESS)
+- [DONE] 2026-05-23 Added: ECS Exec gated behind `--context enableExec=true`
+- [DONE] 2026-05-23 Added: Lambda pipeline (S3 raw/ → parse via ECS → write to processed/)
+- [DONE] 2026-05-23 Stack deployed successfully to us-west-2 (account 726793866085)
+- [DONE] 2026-05-23 E2E test passed: direct POST via port-forward returned parsed DOCX text
+- [DONE] 2026-05-23 E2E test passed: S3 upload to raw/ → Lambda → processed/ (.txt 16KB + .json 155KB)
+- [DONE] 2026-05-23 Built local web UI: drag-and-drop upload, S3 polling, text/JSON preview, download
+- [DONE] 2026-05-23 Added Portless for stable named URL (https://liteparse.localhost)
+- [DONE] 2026-05-23 Lambda runtime upgraded to Node.js 24
+
+## TODO
+- [TODO] Test with various doc types: PDF, XLSX, PPTX, PNG
+- [TODO] Measure processing time for typical docs
+- [TODO] Consider MCP tool wrapper for calling parse endpoint from Claude Code sessions
+- [TODO] Evaluate actual monthly cost against $20-30 budget
+- [TODO] Clean up orphaned CDK-named buckets (4 old buckets with random suffixes)
+- [TODO] Add CDK infrastructure tests (currently commented out boilerplate)
+- [TODO] Add resource tagging (project, environment, owner)
+
+## Known Risks
+- [RISK] NAT Gateway adds ~$30/month — may push past budget (S3 endpoint helps, but GHCR pulls still use NAT)
+- [RISK] Single task at min capacity — acceptable for low usage, auto-scaling handles bursts
+- [RISK] Internal ALB only — callers must be in VPC (MCP tool needs VPN/bastion or VPC connectivity)
+- [RISK] Lambda 5-min timeout — very large documents may need higher timeout or async processing
+
+## Architecture Summary
+```
+Hot path (direct):
+  Caller (in VPC) --> Internal ALB --> ECS Fargate (liteparse-server:main, port 5000) --> POST /parse --> response
+
+Event-driven pipeline:
+  S3 raw/YYYYMMDD/file.docx --> S3 Notification --> Lambda --> POST to ALB --> S3 processed/YYYYMMDD/file.docx.txt + .json
+
+Local UI:
+  Browser (https://liteparse.localhost) --> Express --> S3 raw/ --> Lambda --> S3 processed/ --> Express polls --> Browser
+```
+
+## Deployed Resources
+- **Stack**: LiteparseStack (us-west-2, account 726793866085)
+- **Bucket**: liteparse-docs-726793866085
+- **ALB**: internal-Litepa-Parse-4b0pgQS2yGOF-1107637126.us-west-2.elb.amazonaws.com
+- **ECS Cluster**: LiteparseStack-ClusterEB0386A7-U9q2XHmhJ49E
+- **Lambda**: ParseFunction (Node.js 24, ARM64, triggered by S3)
+
+## Key Files
+- infra/lib/infra-stack.ts — CDK stack definition
+- infra/lib/lambda/parse-handler.ts — Lambda handler for S3 event-driven parsing
+- infra/bin/infra.ts — CDK app entry point
+- ui/server.ts — Local Express server for the web UI
+- ui/public/index.html — Drag-and-drop frontend
+- docs/architecture-decisions.md — full design rationale

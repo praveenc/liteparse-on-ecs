@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LiteParse</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface-hover: #1a1a25;
+    --border: #2a2a3a;
+    --border-active: #4a4a6a;
+    --text: #e8e8f0;
+    --text-muted: #7a7a8f;
+    --accent: #6ee7b7;
+    --accent-dim: #2d6b55;
+    --accent-glow: rgba(110, 231, 183, 0.15);
+    --error: #f87171;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Outfit', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.5rem;
+    line-height: 1.6;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 3rem;
+    animation: fadeDown 0.6s ease;
+  }
+
+  .header h1 {
+    font-size: 2.2rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.4rem;
+  }
+
+  .header h1 span {
+    color: var(--accent);
+  }
+
+  .header p {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    font-weight: 300;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 640px;
+    animation: fadeUp 0.6s ease;
+  }
+
+  /* Drop Zone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 3.5rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: var(--surface);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .dropzone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 50%, var(--accent-glow), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: var(--surface-hover);
+  }
+
+  .dropzone:hover::before, .dropzone.drag-over::before {
+    opacity: 1;
+  }
+
+  .dropzone-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    display: block;
+    opacity: 0.7;
+    transition: transform 0.3s ease;
+  }
+
+  .dropzone:hover .dropzone-icon {
+    transform: translateY(-3px);
+  }
+
+  .dropzone-text {
+    font-size: 1rem;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  .dropzone-text strong {
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .dropzone-formats {
+    margin-top: 0.8rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    opacity: 0.7;
+  }
+
+  .dropzone input[type="file"] {
+    display: none;
+  }
+
+  /* Processing State */
+  .status {
+    margin-top: 1.5rem;
+    padding: 1.2rem 1.5rem;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: none;
+    animation: fadeUp 0.3s ease;
+  }
+
+  .status.visible { display: block; }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .status-text {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 400;
+  }
+
+  .status-filename {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .status.error { border-color: rgba(248, 113, 113, 0.3); }
+  .status.error .status-text { color: var(--error); }
+
+  .status.success { border-color: rgba(110, 231, 183, 0.3); }
+
+  .checkmark {
+    width: 18px;
+    height: 18px;
+    color: var(--accent);
+  }
+
+  /* Results */
+  .results {
+    margin-top: 1.5rem;
+    display: none;
+    animation: fadeUp 0.4s ease;
+  }
+
+  .results.visible { display: block; }
+
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  .results-title {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .results-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.82rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 400;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+    background: var(--surface-hover);
+    color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn-primary:hover {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .preview-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    line-height: 1.7;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .preview-box::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .preview-box::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .preview-box::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+
+  /* Tab switcher */
+  .tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    width: fit-content;
+  }
+
+  .tab {
+    padding: 0.45rem 1rem;
+    font-size: 0.78rem;
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--surface);
+    color: var(--text-muted);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-right: 1px solid var(--border);
+  }
+
+  .tab:last-child { border-right: none; }
+
+  .tab.active {
+    background: var(--surface-hover);
+    color: var(--accent);
+  }
+
+  .tab:hover:not(.active) {
+    color: var(--text);
+  }
+
+  /* New upload */
+  .reset-link {
+    display: inline-block;
+    margin-top: 1.2rem;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+
+  .reset-link:hover { color: var(--accent); }
+
+  /* Animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Lite<span>Parse</span></h1>
+  <p>Drop a document, get structured text back</p>
+</div>
+
+<div class="container">
+  <div class="dropzone" id="dropzone">
+    <span class="dropzone-icon">⬡</span>
+    <div class="dropzone-text">
+      Drag & drop a file here, or <strong>click to browse</strong>
+    </div>
+    <div class="dropzone-formats">PDF · DOCX · XLSX · PPTX · PNG · JPG</div>
+    <input type="file" id="fileInput" accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg">
+  </div>
+
+  <div class="status" id="status">
+    <div class="status-row">
+      <div class="spinner" id="statusSpinner"></div>
+      <span class="checkmark" id="statusCheck" style="display:none">✓</span>
+      <div>
+        <div class="status-filename" id="statusFilename"></div>
+        <div class="status-text" id="statusText"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="results" id="results">
+    <div class="results-header">
+      <span class="results-title">Parsed Output</span>
+      <div class="results-actions">
+        <a class="btn btn-primary" id="downloadTxt">↓ .txt</a>
+        <a class="btn" id="downloadJson">↓ .json</a>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="text">Text</button>
+      <button class="tab" data-tab="json">JSON</button>
+    </div>
+    <div class="preview-box" id="previewBox"></div>
+    <div class="reset-link" id="resetLink">← Parse another document</div>
+  </div>
+</div>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const status = document.getElementById('status');
+const statusFilename = document.getElementById('statusFilename');
+const statusText = document.getElementById('statusText');
+const statusSpinner = document.getElementById('statusSpinner');
+const statusCheck = document.getElementById('statusCheck');
+const results = document.getElementById('results');
+const previewBox = document.getElementById('previewBox');
+const downloadTxt = document.getElementById('downloadTxt');
+const downloadJson = document.getElementById('downloadJson');
+const resetLink = document.getElementById('resetLink');
+
+let currentTxtKey = '';
+let currentJsonKey = '';
+let cachedText = '';
+let cachedJson = '';
+
+// Drag and drop
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    showPreview(tab.dataset.tab);
+  });
+});
+
+resetLink.addEventListener('click', reset);
+
+function reset() {
+  status.className = 'status';
+  results.className = 'results';
+  dropzone.style.display = 'block';
+  fileInput.value = '';
+  cachedText = '';
+  cachedJson = '';
+}
+
+function showStatus(filename, text, state = 'loading') {
+  statusFilename.textContent = filename;
+  statusText.textContent = text;
+  status.className = `status visible ${state === 'error' ? 'error' : state === 'success' ? 'success' : ''}`;
+  statusSpinner.style.display = state === 'loading' ? 'block' : 'none';
+  statusCheck.style.display = state === 'success' ? 'inline' : 'none';
+}
+
+async function handleFile(file) {
+  dropzone.style.display = 'none';
+  showStatus(file.name, 'Uploading to S3...');
+
+  try {
+    // Upload
+    const form = new FormData();
+    form.append('file', file);
+    const uploadResp = await fetch('/api/upload', { method: 'POST', body: form });
+    if (!uploadResp.ok) throw new Error('Upload failed');
+    const { processedPrefix } = await uploadResp.json();
+
+    // Poll for results
+    showStatus(file.name, 'Parsing document...');
+    const result = await pollForResults(processedPrefix);
+
+    // Show results
+    showStatus(file.name, 'Done', 'success');
+    currentTxtKey = result.txtKey;
+    currentJsonKey = result.jsonKey;
+
+    downloadTxt.href = `/api/download?key=${encodeURIComponent(currentTxtKey)}`;
+    downloadJson.href = `/api/download?key=${encodeURIComponent(currentJsonKey)}`;
+
+    // Load text preview
+    const textResp = await fetch(`/api/preview?key=${encodeURIComponent(currentTxtKey)}`);
+    cachedText = await textResp.text();
+
+    const jsonResp = await fetch(`/api/preview?key=${encodeURIComponent(currentJsonKey)}`);
+    cachedJson = await jsonResp.text();
+
+    showPreview('text');
+    results.className = 'results visible';
+
+  } catch (err) {
+    showStatus(file.name || 'File', err.message, 'error');
+  }
+}
+
+function showPreview(tab) {
+  if (tab === 'text') {
+    previewBox.textContent = cachedText || 'Loading...';
+  } else {
+    try {
+      previewBox.textContent = JSON.stringify(JSON.parse(cachedJson), null, 2);
+    } catch {
+      previewBox.textContent = cachedJson || 'Loading...';
+    }
+  }
+}
+
+async function pollForResults(prefix, maxAttempts = 60) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    const resp = await fetch(`/api/status?prefix=${encodeURIComponent(prefix)}`);
+    const data = await resp.json();
+    if (data.ready) return data;
+  }
+  throw new Error('Timeout waiting for parsed results');
+}
+</script>
+</body>
+</html>
