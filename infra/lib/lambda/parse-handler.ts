@@ -49,24 +49,24 @@ export async function handler(event: S3Event): Promise<void> {
 
     const body = Buffer.concat(formParts);
 
-    // Parse as text
-    const textResp = await fetch(`${SERVICE_URL}/parse?text=true`, {
-      method: 'POST',
-      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-      body,
-    });
+    // Parse as text and JSON in parallel
+    const [textResp, jsonResp] = await Promise.all([
+      fetch(`${SERVICE_URL}/parse?text=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      }),
+      fetch(`${SERVICE_URL}/parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      }),
+    ]);
 
     if (!textResp.ok) {
       throw new Error(`Parse (text) failed: ${textResp.status} ${await textResp.text()}`);
     }
     const textContent = await textResp.text();
-
-    // Parse as JSON
-    const jsonResp = await fetch(`${SERVICE_URL}/parse`, {
-      method: 'POST',
-      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-      body,
-    });
 
     if (!jsonResp.ok) {
       throw new Error(`Parse (json) failed: ${jsonResp.status} ${await jsonResp.text()}`);
