@@ -198,3 +198,10 @@ docs/
 - [Architecture Decisions](docs/architecture-decisions.md): Why ECS over Lambda, X86_64 over ARM, and everything else.
 - [LiteParse Overview](docs/liteparse-overview.md): How LiteParse's three-stage pipeline works.
 - [LiteParse Server API](https://developers.llamaindex.ai/liteparse/guides/server-usage/#api-specification): Official endpoint documentation.
+
+## License
+[MIT](https://github.com/praveenc/liteparse-on-ecs/blob/main/LICENSE) - Copyright (c) 2026 Praveen Chamarthi
+
+<div align="center">
+  <sub>Built for the AI developer community ❤️</sub>
+</div>
