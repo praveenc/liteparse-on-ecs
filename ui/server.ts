@@ -1,18 +1,45 @@
 import express from 'express';
 import multer from 'multer';
 import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { Readable } from 'stream';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const STACK_NAME = process.env.LITEPARSE_STACK || 'LiteparseStack';
+const PORT = parseInt(process.env.PORT || '3000');
+
+async function resolveBucket(): Promise<string> {
+  // Explicit env var takes priority
+  if (process.env.LITEPARSE_BUCKET) {
+    return process.env.LITEPARSE_BUCKET;
+  }
+
+  // Query CloudFormation stack outputs
+  const cfn = new CloudFormationClient({});
+  try {
+    const resp = await cfn.send(new DescribeStacksCommand({ StackName: STACK_NAME }));
+    const outputs = resp.Stacks?.[0]?.Outputs || [];
+    const bucketOutput = outputs.find(o => o.OutputKey === 'BucketName');
+    if (bucketOutput?.OutputValue) {
+      return bucketOutput.OutputValue;
+    }
+  } catch (err: any) {
+    // Fall through to error
+  }
+
+  console.error(`\n  ERROR: Could not resolve bucket name.`);
+  console.error(`  Either deploy the stack ("${STACK_NAME}") or set LITEPARSE_BUCKET env var.\n`);
+  process.exit(1);
+}
+
+const BUCKET = await resolveBucket();
+
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 const s3 = new S3Client({});
-
-const BUCKET = process.env.LITEPARSE_BUCKET || 'liteparse-docs-726793866085';
-const PORT = parseInt(process.env.PORT || '3000');
 
 app.use(express.static(path.join(__dirname, 'public')));
 

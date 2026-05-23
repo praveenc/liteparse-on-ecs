@@ -1,16 +1,84 @@
 # LiteParse on ECS
 
-A self-hosted document parsing service running [LiteParse](https://github.com/run-llama/liteparse) on AWS ECS Fargate, deployed with CDK.
+Self-hosted document parsing on AWS. Drop in a DOCX, PDF, or spreadsheet and get structured text back. Everything stays inside your VPC.
 
-## What It Does
+This runs [LiteParse](https://github.com/run-llama/liteparse) (the open-source layout-aware parser from LlamaIndex) on ECS Fargate behind an internal ALB, with a Lambda-powered S3 pipeline for async processing. Deployed via CDK.
 
-Converts documents (DOCX, PDF, XLSX, PPTX, images) into structured text/JSON using LiteParse's layout-aware extraction. Runs entirely within your VPC — no data leaves your AWS account.
+---
 
-**Three usage modes:**
+## Quick Start
 
-1. **Local Web UI** — Drag & drop files at `https://liteparse.localhost` (via [Portless](https://portless.sh/))
-2. **Direct API** — POST files to the internal ALB and get parsed results immediately
-3. **Event-driven** — Upload to S3 `raw/` and results appear automatically in `processed/`
+**Deploy the stack:**
+
+```bash
+cd infra
+npm install
+npx cdk bootstrap   # first time only
+npx cdk deploy
+```
+
+**Run the local UI:**
+
+```bash
+cd ui
+npm install
+npm start
+```
+
+Open [https://liteparse.localhost](https://liteparse.localhost) and drag a file in. That's it. You'll see the parsed text and can download `.txt` or `.json` results.
+
+The local UI uses [Portless](https://portless.sh/) for a stable named URL instead of `localhost:3000`. On first run it'll prompt once to trust the local CA.
+
+---
+
+## How It Works
+
+There are three ways to use the service, depending on your workflow:
+
+### 1. Local Web UI
+
+The simplest option. A drag-and-drop interface that uploads your file to S3, waits for it to be parsed, and shows the result. Good for ad-hoc use or quick testing.
+
+```bash
+cd ui && npm start
+# https://liteparse.localhost
+```
+
+### 2. S3 Pipeline (event-driven)
+
+Upload a file to the `raw/` prefix in S3 and walk away. A Lambda picks it up, sends it to the parsing service, and writes the output to `processed/`. Useful for batch workflows or integrations that already produce files in S3.
+
+```bash
+aws s3 cp report.docx s3://liteparse-docs-ACCOUNT_ID/raw/20260523/report.docx
+
+# A few seconds later:
+aws s3 ls s3://liteparse-docs-ACCOUNT_ID/processed/20260523/
+#   report.docx.txt
+#   report.docx.json
+```
+
+### 3. Direct API
+
+For services running inside the VPC that want synchronous results. POST a file, get text or JSON back immediately.
+
+```bash
+# Plain text
+curl -X POST "http://<ALB_DNS>/parse?text=true" -F "file=@document.docx"
+
+# Structured JSON (pages with bounding boxes)
+curl -X POST "http://<ALB_DNS>/parse" -F "file=@document.pdf"
+
+# Page screenshots as NDJSON stream of base64 PNGs
+curl -X POST "http://<ALB_DNS>/screenshots?pages=1,2" -F "file=@document.pdf"
+```
+
+---
+
+## Supported Formats
+
+PDF, DOCX, XLSX, PPTX, PNG, and JPG. Images go through Tesseract.js OCR automatically.
+
+---
 
 ## Architecture
 
@@ -18,44 +86,52 @@ Converts documents (DOCX, PDF, XLSX, PPTX, images) into structured text/JSON usi
 +------------------------------------------------------------------+
 | VPC (2 AZs, 1 NAT Gateway)                                       |
 |                                                                  |
-|   +----------+     +--------------+     +------------------+     |
-|   |  Lambda  |---->| Internal ALB |---->| ECS Fargate Task |     |
-|   | (ARM64)  |     |   (port 80)  |     | (liteparse:5000) |     |
-|   +----+-----+     +--------------+     +------------------+     |
-|        |                                                         |
-|        v                                                         |
-|   +----------------------------------------------------------+   |
-|   | S3: liteparse-docs-{account-id}                          |   |
-|   |   raw/YYYYMMDD/file.docx         <-- input (triggers Lambda) |
-|   |   processed/YYYYMMDD/file.docx.txt   <-- text output     |   |
-|   |   processed/YYYYMMDD/file.docx.json  <-- JSON output     |   |
-|   +----------------------------------------------------------+   |
-|                          |                                       |
-|                   S3 VPC Endpoint (free)                         |
+|  +----------+     +--------------+     +-------------------+     |
+|  |  Lambda  |---->| Internal ALB |---->| ECS Fargate Task  |     |
+|  | (ARM64)  |     |  (port 80)   |     | (liteparse:5000)  |     |
+|  +----+-----+     +--------------+     +-------------------+     |
+|       |                                                          |
+|       v                                                          |
+|  +---------------------------------------------------------+     |
+|  | S3: liteparse-docs-{account-id}                         |     |
+|  |   raw/YYYYMMDD/file.docx       <-- triggers Lambda      |     |
+|  |   processed/YYYYMMDD/file.docx.txt   <-- text output    |     |
+|  |   processed/YYYYMMDD/file.docx.json  <-- JSON output    |     |
+|  +---------------------------------------------------------+     |
+|                         |                                        |
+|                  S3 VPC Endpoint (free)                          |
 +------------------------------------------------------------------+
 ```
 
-## Prerequisites
+The local UI sits outside the VPC. It talks to S3 directly using your AWS credentials, and the S3 event notification triggers the same Lambda pipeline.
 
-- AWS CLI configured with credentials
-- Node.js 24+
-- CDK bootstrapped in target account/region: `cd infra && npx cdk bootstrap`
+**Key design choices:**
 
-## Deploy
+- The ALB is internal (not internet-facing). Network isolation is the security boundary.
+- The ECS task runs the [pre-built LiteParse server image](https://github.com/run-llama/liteparse) from GHCR. No custom Dockerfile.
+- Auto-scaling (1 to 4 tasks) tracks CPU at 70%. One task handles low traffic; bursts scale out.
+- The S3 bucket has a stable name (`liteparse-docs-{account-id}`), versioning enabled, and lifecycle rules that transition to Standard-IA at 30 days and expire at 90 days.
 
-```bash
-cd infra
-npm install
-npx cdk deploy
-```
+---
 
-### Deploy with ECS Exec (for debugging)
+## Configuration
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| `--context enableExec=true` | off | Enables ECS Exec (SSM shell/port-forward into the task) |
+| `LITEPARSE_BUCKET` env var | `liteparse-docs-{account-id}` | Override the S3 bucket used by the local UI |
+
+---
+
+## Debugging
+
+Deploy with ECS Exec enabled to get a direct tunnel to the container:
 
 ```bash
 npx cdk deploy --context enableExec=true
 ```
 
-This enables SSM port-forwarding to the Fargate task for direct testing:
+Then port-forward to test the service without going through S3:
 
 ```bash
 aws ssm start-session \
@@ -63,120 +139,62 @@ aws ssm start-session \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["5000"],"localPortNumber":["15000"]}' \
   --region us-west-2
+
+# Now you can curl directly:
+curl -X POST "http://localhost:15000/parse?text=true" -F "file=@test.pdf"
 ```
 
-## Usage
+---
 
-### Local Web UI
+## Cost
 
-A drag-and-drop interface powered by [Portless](https://portless.sh/) for a stable named URL:
+| Component | Monthly |
+|-----------|---------|
+| Fargate (1 task, 1 vCPU / 4 GB) | ~$30 |
+| NAT Gateway + data transfer | ~$30 |
+| ALB | ~$16 |
+| Lambda, S3, CloudWatch | < $2 |
+| **Total (idle)** | **~$77** |
 
-```bash
-cd ui
-npm install
-npm start
-# -> https://liteparse.localhost
-```
+The NAT gateway is the obvious optimization target. A VPC endpoint for GHCR would eliminate it for image pulls, but that's a future consideration.
 
-Drag and drop any supported file. The UI uploads to S3, waits for the Lambda to parse it, then shows the extracted text inline with download buttons for `.txt` and `.json`.
-
-For hot-reload during development:
-```bash
-npm run dev
-```
-
-### Direct API (from within VPC)
-
-```bash
-# Parse and get text
-curl -X POST "http://<ALB_DNS>/parse?text=true" -F "file=@document.docx"
-
-# Parse and get JSON with page structure
-curl -X POST "http://<ALB_DNS>/parse" -F "file=@document.pdf"
-
-# Screenshot pages
-curl -X POST "http://<ALB_DNS>/screenshots?pages=1,2" -F "file=@document.pdf"
-```
-
-### Event-driven (S3 pipeline)
-
-```bash
-# Upload a document — Lambda triggers automatically
-aws s3 cp report.docx s3://liteparse-docs-ACCOUNT_ID/raw/20260523/report.docx
-
-# Results appear within seconds
-aws s3 ls s3://liteparse-docs-ACCOUNT_ID/processed/20260523/
-# → report.docx.txt
-# → report.docx.json
-```
+---
 
 ## Stack Outputs
 
-| Output | Description |
-|--------|-------------|
-| `ServiceUrl` | Internal ALB endpoint for direct API calls |
-| `BucketName` | S3 bucket name (`liteparse-docs-{account-id}`) |
-| `ParseFunctionName` | Lambda function name for the S3 pipeline |
+After `cdk deploy`, you'll see:
+
+| Output | Value |
+|--------|-------|
+| `ServiceUrl` | Internal ALB DNS (for direct API calls from within VPC) |
+| `BucketName` | `liteparse-docs-{account-id}` |
+| `ParseFunctionName` | Lambda function name |
 | `ParseFunctionArn` | Lambda function ARN |
 
-## Configuration
+---
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `--context enableExec=true` | `false` | Enable ECS Exec/SSM for debugging |
-| `LITEPARSE_BUCKET` env var | `liteparse-docs-{account-id}` | Override S3 bucket for the local UI |
-
-## Infrastructure Details
-
-- **ECS**: 1 vCPU, 4 GB RAM, auto-scales 1–4 tasks at 70% CPU
-- **Lambda**: Node.js 24, ARM64, 512 MB, 5-min timeout
-- **S3**: Versioned, Standard-IA after 30 days, 90-day expiry, multi-AZ
-- **Networking**: Internal ALB, S3 VPC Gateway endpoint, 1 NAT gateway
-- **Monitoring**: CloudWatch alarms on 5xx rate, CPU, unhealthy hosts
-- **Deployment safety**: Circuit breaker with rollback, 100% min healthy
-
-## Supported Formats
-
-- PDF, DOCX, XLSX, PPTX
-- PNG, JPG (with OCR via Tesseract.js)
-
-## Cost Estimate
-
-| Component | Approx. Monthly |
-|-----------|----------------|
-| Fargate (1 task, 1 vCPU/4GB) | ~$30 |
-| NAT Gateway + data | ~$30 |
-| ALB | ~$16 |
-| Lambda | < $1 (pay per invocation) |
-| S3 | < $1 |
-| **Total** | **~$77/month at idle** |
-
-> NAT cost can be reduced with a VPC endpoint for GHCR (future consideration).
-
-## Project Structure
+## Project Layout
 
 ```
-├── infra/
-│   ├── bin/infra.ts              # CDK app entry point
-│   ├── lib/infra-stack.ts        # Main stack definition
-│   ├── lib/lambda/
-│   │   └── parse-handler.ts      # S3 event → parse → write results
-│   └── test/infra.test.ts        # Infrastructure tests (TODO)
-├── ui/
-│   ├── server.ts             # Local Express server (S3 upload, poll, preview)
-│   ├── public/
-│   │   └── index.html        # Drag-and-drop frontend
-│   └── package.json
-├── docs/
-│   ├── architecture-decisions.md # Full design rationale
-│   ├── hosting-liteparse-on-ecs.md
-│   └── liteparse-overview.md
-├── CHANGELOG.md
-└── PROGRESS_LOG.md
+infra/
+  bin/infra.ts                CDK app entry point
+  lib/infra-stack.ts          Stack: VPC, ECS, ALB, S3, Lambda, alarms
+  lib/lambda/parse-handler.ts S3 event handler (download -> parse -> write)
+
+ui/
+  server.ts                   Express server (upload, poll, preview, download)
+  public/index.html           Drag-and-drop frontend
+
+docs/
+  architecture-decisions.md   Full design rationale and ADRs
+  liteparse-overview.md       What LiteParse is and how it works
+  hosting-liteparse-on-ecs.md Background research on ECS hosting
 ```
 
-## Related Docs
+---
 
-- [Architecture Decisions](docs/architecture-decisions.md)
-- [LiteParse Overview](docs/liteparse-overview.md)
-- [LiteParse Server API](https://developers.llamaindex.ai/liteparse/guides/server-usage/#api-specification)
+## Further Reading
+
+- [Architecture Decisions](docs/architecture-decisions.md): Why ECS over Lambda, X86_64 over ARM, and everything else.
+- [LiteParse Overview](docs/liteparse-overview.md): How LiteParse's three-stage pipeline works.
+- [LiteParse Server API](https://developers.llamaindex.ai/liteparse/guides/server-usage/#api-specification): Official endpoint documentation.
