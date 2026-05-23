@@ -1,4 +1,4 @@
-# LiteParse on AWS — Architecture Decisions
+# LiteParse on AWS - Architecture Decisions
 
 ## Compute: ECS Fargate (revised from Lambda)
 
@@ -26,7 +26,7 @@
 
 ### Native LiteParse API (used directly)
 
-**POST /parse** — Parse a document
+**POST /parse** - Parse a document
 
 Form fields:
 | Field | Type | Required | Description |
@@ -40,12 +40,12 @@ Query parameters:
 | `text` | boolean | `false` | If `true`, returns `text/plain`; otherwise returns JSON with `pages` array |
 
 Responses:
-- `200 text/plain` — extracted text (when `?text=true`)
-- `200 application/json` — `{ "pages": [...] }` (when `?text=false`)
-- `400` — missing file
-- `429` — rate limit exceeded
+- `200 text/plain` - extracted text (when `?text=true`)
+- `200 application/json` - `{ "pages": [...] }` (when `?text=false`)
+- `400` - missing file
+- `429` - rate limit exceeded
 
-**POST /screenshots** — Screenshot pages
+**POST /screenshots** - Screenshot pages
 
 Form fields:
 | Field | Type | Required | Description |
@@ -69,7 +69,7 @@ s3://liteparse-docs-{account-id}/
 └── processed/YYYYMMDD/report.docx.json <- json output (optional caching)
 ```
 
-- S3 is optional for the hot path — callers can POST files directly to `/parse`
+- S3 is optional for the hot path - callers can POST files directly to `/parse`
 - S3 is available for archiving inputs and caching outputs if needed
 - Date partitioning avoids staleness when same filename is uploaded on different days
 

@@ -14,9 +14,9 @@ Converts documents (DOCX, PDF, XLSX, PPTX, images) into structured text/JSON usi
 
 ## Architecture
 
-```txt
+```
 +------------------------------------------------------------------+
-| VPC (2 AZs, 1 NAT Gateway)                                      |
+| VPC (2 AZs, 1 NAT Gateway)                                       |
 |                                                                  |
 |   +----------+     +--------------+     +------------------+     |
 |   |  Lambda  |---->| Internal ALB |---->| ECS Fargate Task |     |
