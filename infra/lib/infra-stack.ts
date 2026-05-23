@@ -96,6 +96,9 @@ export class InfraStack extends cdk.Stack {
 
     service.targetGroup.setAttribute('deregistration_delay.timeout_seconds', '10');
 
+    // Increase ALB idle timeout for large document parsing (DOCX with images can take >60s)
+    service.loadBalancer.setAttribute('idle_timeout.timeout_seconds', '300');
+
     bucket.grantReadWrite(service.taskDefinition.taskRole);
 
     // Auto-scaling
