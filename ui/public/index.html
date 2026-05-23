@@ -490,14 +490,17 @@ function showPreview(tab) {
   }
 }
 
-async function pollForResults(prefix, maxAttempts = 60) {
+async function pollForResults(prefix, maxAttempts = 150) {
+  const start = Date.now();
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    statusText.textContent = `Parsing document... (${elapsed}s)`;
     const resp = await fetch(`/api/status?prefix=${encodeURIComponent(prefix)}`);
     const data = await resp.json();
     if (data.ready) return data;
   }
-  throw new Error('Timeout waiting for parsed results');
+  throw new Error('Timeout after 5 minutes. The document may be too large or the service may be cold-starting.');
 }
 </script>
 </body>
